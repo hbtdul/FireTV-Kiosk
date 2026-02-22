@@ -24,8 +24,8 @@ class MainActivity : AppCompatActivity() {
         private const val PREF_URL = "last_url"
         private const val DEFAULT_URL = "https://example.com"
 
+        // mögliche Werte: auto, landscape, portrait, reverse_landscape, reverse_portrait
         private const val PREF_ORIENTATION = "orientation_mode"
-        // mögliche Werte speichern wir als String: auto, landscape, portrait, reverse_landscape, reverse_portrait
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -54,6 +54,7 @@ class MainActivity : AppCompatActivity() {
         webView.webChromeClient = WebChromeClient()
         webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                // Bleibe im WebView
                 return false
             }
         }
@@ -104,17 +105,16 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    // ☰ Options-Taste öffnet Menü, Zurück geht im WebView zurück
+    // Fernbedienung: Zurück = WebView zurück; Options (☰) = Menü
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
 
         if (keyCode == KeyEvent.KEYCODE_BACK) {
-            if (webView.canGoBack()) {
+            if (::webView.isInitialized && webView.canGoBack()) {
                 webView.goBack()
                 return true
             }
         }
 
-        // Options (☰)
         if (keyCode == KeyEvent.KEYCODE_MENU) {
             showOptionsMenu()
             return true
@@ -126,7 +126,7 @@ class MainActivity : AppCompatActivity() {
     private fun showOptionsMenu() {
         val items = arrayOf(
             "URL ändern",
-            "Rotation / Ausrichtung",
+            "Rotation / Ausrichtung"
         )
 
         val dialog = AlertDialog.Builder(this)
@@ -150,12 +150,9 @@ class MainActivity : AppCompatActivity() {
         }
 
         val logo = ImageView(this).apply {
-            // Du legst das Logo als drawable/tendance_logo.png ab
+            // Logo muss unter app/src/main/res/drawable/tendance_logo.png liegen
             setImageResource(R.drawable.tendance_logo)
-            // Größe für TV-Dialog
-            layoutParams = LinearLayout.LayoutParams(120, 120).apply {
-                marginEnd = 24
-            }
+            layoutParams = LinearLayout.LayoutParams(120, 120).apply { marginEnd = 24 }
             scaleType = ImageView.ScaleType.FIT_CENTER
         }
 
@@ -193,11 +190,9 @@ class MainActivity : AppCompatActivity() {
         AlertDialog.Builder(this)
             .setTitle("Rotation / Ausrichtung")
             .setSingleChoiceItems(labels, checkedIndex) { dialog, which ->
-                val chosen = values[which]
-                prefs.edit().putString(PREF_ORIENTATION, chosen).apply()
+                prefs.edit().putString(PREF_ORIENTATION, values[which]).apply()
                 applySavedOrientation()
                 dialog.dismiss()
-                // Optional: recreate() sorgt dafür, dass Layout sauber neu aufgebaut wird
                 recreate()
             }
             .setNegativeButton("Abbrechen", null)
@@ -210,12 +205,14 @@ class MainActivity : AppCompatActivity() {
             "portrait" -> requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
             "reverse_landscape" -> requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE
             "reverse_portrait" -> requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT
-            else -> requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            else -> requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED // Auto
         }
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        webView.destroy()
+        if (::webView.isInitialized) {
+            webView.destroy()
+        }
     }
 }
