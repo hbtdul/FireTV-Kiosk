@@ -3,7 +3,9 @@ package de.firewebkiosk
 import android.annotation.SuppressLint
 import android.app.AlertDialog
 import android.content.Context
+import android.content.Intent
 import android.content.pm.ActivityInfo
+import android.net.Uri
 import android.os.Bundle
 import android.text.InputType
 import android.view.KeyEvent
@@ -14,6 +16,11 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.FileProvider
+import org.json.JSONObject
+import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
 
 class MainActivity : AppCompatActivity() {
 
@@ -26,16 +33,24 @@ class MainActivity : AppCompatActivity() {
 
         // mögliche Werte: auto, landscape, portrait, reverse_landscape, reverse_portrait
         private const val PREF_ORIENTATION = "orientation_mode"
+
+        // GitHub "latest release" API
+        private const val GITHUB_LATEST_API =
+            "https://api.github.com/repos/hbtdul/FireTV-Kiosk/releases/latest"
+
+        // APK-Download (immer gleiche Datei im Release!)
+        private const val UPDATE_APK_URL =
+            "https://github.com/hbtdul/FireTV-Kiosk/releases/latest/download/firekiosk.apk"
     }
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Bildschirm wach halten (verhindert Standby, solange App im Vordergrund ist)
+        // Bildschirm wach halten
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
-        // Gespeicherte Orientierung anwenden (vor setContentView ist am saubersten)
+        // Gespeicherte Orientierung anwenden
         applySavedOrientation()
 
         setContentView(R.layout.activity_main)
@@ -54,7 +69,6 @@ class MainActivity : AppCompatActivity() {
         webView.webChromeClient = WebChromeClient()
         webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-                // Bleibe im WebView
                 return false
             }
         }
@@ -65,6 +79,9 @@ class MainActivity : AppCompatActivity() {
         } else {
             loadUrl(saved)
         }
+
+        // Auto-Update Check beim Start
+        checkForUpdate(silentIfNone = true)
     }
 
     private fun normalizeUrl(input: String): String {
@@ -107,7 +124,6 @@ class MainActivity : AppCompatActivity() {
 
     // Fernbedienung: Zurück = WebView zurück; Options (☰) = Menü
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
-
         if (keyCode == KeyEvent.KEYCODE_BACK) {
             if (::webView.isInitialized && webView.canGoBack()) {
                 webView.goBack()
@@ -126,21 +142,21 @@ class MainActivity : AppCompatActivity() {
     private fun showOptionsMenu() {
         val items = arrayOf(
             "URL ändern",
-            "Rotation / Ausrichtung"
+            "Rotation / Ausrichtung",
+            "Nach Updates suchen"
         )
 
-        val dialog = AlertDialog.Builder(this)
+        AlertDialog.Builder(this)
             .setCustomTitle(buildMenuHeaderView())
             .setItems(items) { _, which ->
                 when (which) {
                     0 -> askForUrlAndLoad(initial = false)
                     1 -> showOrientationMenu()
+                    2 -> checkForUpdate(silentIfNone = false)
                 }
             }
             .setNegativeButton("Schließen", null)
-            .create()
-
-        dialog.show()
+            .show()
     }
 
     private fun buildMenuHeaderView(): LinearLayout {
@@ -205,14 +221,134 @@ class MainActivity : AppCompatActivity() {
             "portrait" -> requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
             "reverse_landscape" -> requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE
             "reverse_portrait" -> requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT
-            else -> requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED // Auto
+            else -> requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         }
+    }
+
+    // -------------------------
+    // Auto Update (GitHub latest)
+    // -------------------------
+
+    private fun checkForUpdate(silentIfNone: Boolean) {
+        Thread {
+            try {
+                val conn = URL(GITHUB_LATEST_API).openConnection() as HttpURLConnection
+                conn.connectTimeout = 8000
+                conn.readTimeout = 8000
+                conn.setRequestProperty("Accept", "application/vnd.github+json")
+
+                val jsonText = conn.inputStream.bufferedReader().use { it.readText() }
+                val json = JSONObject(jsonText)
+
+                val tag = json.getString("tag_name") // z.B. "v1.2"
+                val remote = tag.removePrefix("v").trim()
+                val local = BuildConfig.VERSION_NAME.trim()
+
+                if (isRemoteNewer(remote, local)) {
+                    runOnUiThread { showUpdateDialog(tag) }
+                } else if (!silentIfNone) {
+                    runOnUiThread {
+                        AlertDialog.Builder(this)
+                            .setTitle("Kein Update")
+                            .setMessage("Du hast bereits die neueste Version ($local).")
+                            .setPositiveButton("OK", null)
+                            .show()
+                    }
+                }
+            } catch (e: Exception) {
+                if (!silentIfNone) {
+                    runOnUiThread {
+                        AlertDialog.Builder(this)
+                            .setTitle("Update-Check fehlgeschlagen")
+                            .setMessage("Konnte nicht prüfen. Internet verfügbar?\n\n${e.message ?: ""}")
+                            .setPositiveButton("OK", null)
+                            .show()
+                    }
+                }
+            }
+        }.start()
+    }
+
+    private fun isRemoteNewer(remote: String, local: String): Boolean {
+        fun parse(v: String): List<Int> =
+            v.split(".", "-", "_").mapNotNull { it.toIntOrNull() }
+
+        val r = parse(remote)
+        val l = parse(local)
+        val n = maxOf(r.size, l.size)
+
+        for (i in 0 until n) {
+            val rv = r.getOrElse(i) { 0 }
+            val lv = l.getOrElse(i) { 0 }
+            if (rv > lv) return true
+            if (rv < lv) return false
+        }
+        return false
+    }
+
+    private fun showUpdateDialog(tag: String) {
+        AlertDialog.Builder(this)
+            .setTitle("Update verfügbar")
+            .setMessage("Neue Version verfügbar: $tag\n\nJetzt herunterladen und installieren?")
+            .setPositiveButton("Installieren") { _, _ ->
+                downloadAndInstallApk()
+            }
+            .setNegativeButton("Später", null)
+            .show()
+    }
+
+    private fun downloadAndInstallApk() {
+        Thread {
+            try {
+                val conn = URL(UPDATE_APK_URL).openConnection() as HttpURLConnection
+                conn.instanceFollowRedirects = true
+                conn.connectTimeout = 15000
+                conn.readTimeout = 15000
+
+                val outFile = File(cacheDir, "update.apk")
+                conn.inputStream.use { input ->
+                    outFile.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+
+                runOnUiThread { promptInstall(outFile) }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    AlertDialog.Builder(this)
+                        .setTitle("Update fehlgeschlagen")
+                        .setMessage("Konnte die APK nicht laden.\n\n${e.message ?: ""}")
+                        .setPositiveButton("OK", null)
+                        .show()
+                }
+            }
+        }.start()
+    }
+
+    private fun promptInstall(apkFile: File) {
+        // Ab Android O ggf. Erlaubnis zum Installieren unbekannter Apps nötig
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            if (!packageManager.canRequestPackageInstalls()) {
+                val intent = Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
+                    data = Uri.parse("package:$packageName")
+                }
+                startActivity(intent)
+                return
+            }
+        }
+
+        val apkUri = FileProvider.getUriForFile(this, "$packageName.fileprovider", apkFile)
+
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(apkUri, "application/vnd.android.package-archive")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        startActivity(intent)
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        if (::webView.isInitialized) {
-            webView.destroy()
-        }
+        if (::webView.isInitialized) webView.destroy()
     }
 }
