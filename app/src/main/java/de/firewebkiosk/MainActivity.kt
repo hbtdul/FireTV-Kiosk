@@ -34,11 +34,11 @@ class MainActivity : AppCompatActivity() {
         // mögliche Werte: auto, landscape, portrait, reverse_landscape, reverse_portrait
         private const val PREF_ORIENTATION = "orientation_mode"
 
-        // GitHub "latest release" API
+        // GitHub latest release API
         private const val GITHUB_LATEST_API =
             "https://api.github.com/repos/hbtdul/FireTV-Kiosk/releases/latest"
 
-        // APK-Download (immer gleiche Datei im Release!)
+        // APK-Download (Asset muss in jedem Release gleich heißen!)
         private const val UPDATE_APK_URL =
             "https://github.com/hbtdul/FireTV-Kiosk/releases/latest/download/firekiosk.apk"
     }
@@ -47,7 +47,7 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Bildschirm wach halten
+        // Bildschirm wach halten (verhindert Standby, solange App im Vordergrund ist)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         // Gespeicherte Orientierung anwenden
@@ -122,8 +122,11 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    // Fernbedienung: Zurück = WebView zurück; Options (☰) = Menü
+    // Fernbedienung:
+    // - Zurück = WebView zurück
+    // - Menü/Options/Settings/TopMenu/ContextMenu = Options-Menü
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+
         if (keyCode == KeyEvent.KEYCODE_BACK) {
             if (::webView.isInitialized && webView.canGoBack()) {
                 webView.goBack()
@@ -131,12 +134,27 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        if (keyCode == KeyEvent.KEYCODE_MENU) {
+        // Fire TV Remotes senden je nach Modell unterschiedliche Codes
+        if (
+            keyCode == KeyEvent.KEYCODE_MENU ||
+            keyCode == KeyEvent.KEYCODE_SETTINGS ||
+            keyCode == KeyEvent.KEYCODE_MEDIA_TOP_MENU ||
+            keyCode == KeyEvent.KEYCODE_MEDIA_CONTEXT_MENU
+        ) {
             showOptionsMenu()
             return true
         }
 
         return super.onKeyDown(keyCode, event)
+    }
+
+    // Fallback: langer Druck auf OK/Select öffnet Menü (damit es immer erreichbar ist)
+    override fun onKeyLongPress(keyCode: Int, event: KeyEvent): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) {
+            showOptionsMenu()
+            return true
+        }
+        return super.onKeyLongPress(keyCode, event)
     }
 
     private fun showOptionsMenu() {
