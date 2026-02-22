@@ -102,19 +102,30 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    // Fernbedienung: Zurück = WebView back; URL ändern über LONG-press PLAY/PAUSE
+    // Fernbedienung:
+    // - Zurück = WebView zurück
+    // - Options (☰) = URL ändern
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+
+        // Zurück-Taste → im WebView zurück
         if (keyCode == KeyEvent.KEYCODE_BACK) {
             if (webView.canGoBack()) {
                 webView.goBack()
                 return true
             }
         }
+
+        // Options-Taste (☰) → URL ändern
+        if (keyCode == KeyEvent.KEYCODE_MENU) {
+            askForUrlAndLoad(initial = false)
+            return true
+        }
+
         return super.onKeyDown(keyCode, event)
     }
 
+    // Backup: langer Druck auf Play/Pause → URL ändern (kannst du löschen, wenn du nur Options willst)
     override fun onKeyLongPress(keyCode: Int, event: KeyEvent): Boolean {
-        // Auf Fire TV gut erreichbar: langer Druck auf Play/Pause
         if (keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE) {
             askForUrlAndLoad(initial = false)
             return true
